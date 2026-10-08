@@ -1,0 +1,65 @@
+# Full stack: API + web (single container), PostgreSQL, and MinIO (S3-compatible object storage).
+#   docker compose up --build    →  http://localhost:4000   (MinIO console: http://localhost:9001)
+# For production, replace MinIO with AWS S3 / R2 and set real secrets.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: vidvault
+      POSTGRES_PASSWORD: vidvault
+      POSTGRES_DB: vidvault
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U vidvault']
+      interval: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: vidvault
+      MINIO_ROOT_PASSWORD: vidvault-secret
+    ports: ['9000:9000', '9001:9001']
+    volumes: [miniodata:/data]
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      retries: 10
+
+  # Creates the private bucket once MinIO is up (no anonymous access — everything goes through signed URLs).
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio: { condition: service_healthy }
+    entrypoint: >
+      sh -c "mc alias set local http://minio:9000 vidvault vidvault-secret &&
+             mc mb --ignore-existing local/vidvault &&
+             mc anonymous set none local/vidvault"
+
+  app:
+    build: .
+    depends_on:
+      postgres: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+    ports: ['4000:4000']
+    environment:
+      APP_URL: http://localhost:4000
+      APP_SECRET: change-me-please-use-a-long-random-secret-0123456789
+      DATABASE_URL: postgresql://vidvault:vidvault@postgres:5432/vidvault?schema=public
+      ADMIN_EMAIL: admin@example.com
+      ADMIN_PASSWORD: ChangeMe123!
+      STORAGE_DRIVER: s3
+      S3_BUCKET: vidvault
+      S3_REGION: us-east-1
+      S3_ENDPOINT: http://minio:9000
+      # The browser uploads/streams directly from storage, so it needs a reachable endpoint.
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+      S3_ACCESS_KEY_ID: vidvault
+      S3_SECRET_ACCESS_KEY: vidvault-secret
+      S3_FORCE_PATH_STYLE: 'true'
+      TRANSCODE_RENDITIONS: 'true'
+
+volumes:
+  pgdata:
+  miniodata:

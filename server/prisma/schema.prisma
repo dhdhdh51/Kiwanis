@@ -1,0 +1,208 @@
+// VidVault database schema (PostgreSQL)
+// Video binaries live in object storage; this database stores metadata only.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum VideoStatus {
+  UPLOADING
+  PROCESSING
+  READY
+  FAILED
+}
+
+enum UploadStatus {
+  ACTIVE
+  COMPLETED
+  ABORTED
+  FAILED
+  EXPIRED
+}
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique
+  name         String
+  passwordHash String
+  role         Role       @default(USER)
+  status       UserStatus @default(ACTIVE)
+  /// Per-user storage quota in bytes
+  storageLimit BigInt
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  sessions    Session[]
+  resetTokens PasswordResetToken[]
+  folders     Folder[]
+  videos      Video[]
+  uploads     UploadSession[]
+  activities  Activity[]
+}
+
+model Session {
+  id         String   @id @default(uuid()) @db.Uuid
+  /// SHA-256 of the opaque cookie token (the raw token is never stored)
+  tokenHash  String   @unique
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userAgent  String?
+  ip         String?
+  expiresAt  DateTime
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  tokenHash String    @unique
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model Folder {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  parentId  String?  @db.Uuid
+  parent    Folder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Folder[] @relation("FolderTree")
+  videos    Video[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, parentId])
+}
+
+model Video {
+  id               String      @id @default(uuid()) @db.Uuid
+  userId           String      @db.Uuid
+  user             User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folderId         String?     @db.Uuid
+  folder           Folder?     @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  /// Display name (user can rename)
+  filename         String
+  originalFilename String
+  /// Lower-case extension: mp4, mov, mkv, avi, webm, m4v
+  format           String
+  mimeType         String
+  size             BigInt
+  storageKey       String      @unique
+  thumbnailKey     String?
+  duration         Float?
+  width            Int?
+  height           Int?
+  /// Quick content fingerprint used for duplicate detection / resume
+  fingerprint      String?
+  status           VideoStatus @default(UPLOADING)
+  processingError  String?
+  uploadedAt       DateTime?
+  /// Soft-delete marker (Trash)
+  deletedAt        DateTime?
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+  share      ShareLink?
+  upload     UploadSession?
+  renditions Rendition[]
+
+  @@index([userId, deletedAt, createdAt])
+  @@index([userId, folderId])
+  @@index([userId, fingerprint, size])
+  @@index([status])
+}
+
+model Rendition {
+  id         String   @id @default(uuid()) @db.Uuid
+  videoId    String   @db.Uuid
+  video      Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  label      String
+  height     Int
+  mimeType   String
+  size       BigInt
+  storageKey String   @unique
+  createdAt  DateTime @default(now())
+
+  @@unique([videoId, label])
+}
+
+model UploadSession {
+  id              String       @id @default(uuid()) @db.Uuid
+  userId          String       @db.Uuid
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  videoId         String       @unique @db.Uuid
+  video           Video        @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  /// Multipart upload id returned by the storage driver
+  storageUploadId String
+  size            BigInt
+  chunkSize       Int
+  totalChunks     Int
+  uploadedBytes   BigInt       @default(0)
+  fingerprint     String?
+  status          UploadStatus @default(ACTIVE)
+  error           String?
+  ip              String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  completedAt     DateTime?
+
+  @@index([userId, status])
+  @@index([status, updatedAt])
+  @@index([userId, fingerprint, size])
+}
+
+model ShareLink {
+  id            String    @id @default(uuid()) @db.Uuid
+  videoId       String    @unique @db.Uuid
+  video         Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  /// Unguessable random token used in the public URL
+  token         String    @unique
+  /// true = anyone with the link can view; false = link is private (owner only)
+  isPublic      Boolean   @default(true)
+  passwordHash  String?
+  expiresAt     DateTime?
+  allowDownload Boolean   @default(true)
+  views         Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Activity {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String?  @db.Uuid
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  type      String
+  message   String
+  meta      Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([type, createdAt])
+}
