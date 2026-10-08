@@ -1,15 +1,13 @@
 name: Android APK
 
 # Builds the VidVault Android app.
-#  - Every push to android/** (and manual runs): signed APK uploaded as a workflow artifact.
-#  - Tags like "android-v1.2.0": also published as a GitHub Release with the APK attached.
 #
-# Signing secrets (Settings → Secrets and variables → Actions):
-#   ANDROID_KEYSTORE_BASE64   base64 of the .jks keystore
-#   ANDROID_KEYSTORE_PASSWORD keystore password
-#   ANDROID_KEY_ALIAS         key alias (vidvault)
-#   ANDROID_KEY_PASSWORD      key password
-# Without them a debug-signed APK is built instead (installable, but updates won't install over a release build).
+# Signing happens on the VidVault server, NOT here: the repository is public, so the signing key never
+# touches GitHub. Each build publishes an *unsigned* release APK as a GitHub pre-release; the server
+# (vidvault-apk-sync timer) picks it up, signs it with its private key and serves it at /download/android.
+#
+# Optional: if ANDROID_KEYSTORE_BASE64 / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
+# secrets exist, the APK is signed here instead.
 #
 # Optional repository variable VIDVAULT_SERVER sets the default server shown at sign-in.
 
@@ -83,9 +81,10 @@ jobs:
             echo "task=assembleRelease" >> "$GITHUB_OUTPUT"
             echo "apk=app/build/outputs/apk/release/app-release.apk" >> "$GITHUB_OUTPUT"
           else
-            echo "::warning::Signing secrets not available — building a debug APK."
-            echo "task=assembleDebug" >> "$GITHUB_OUTPUT"
-            echo "apk=app/build/outputs/apk/debug/app-debug.apk" >> "$GITHUB_OUTPUT"
+            # Unsigned release build — signed later on the server.
+            echo "task=assembleRelease" >> "$GITHUB_OUTPUT"
+            echo "apk=app/build/outputs/apk/release/app-release-unsigned.apk" >> "$GITHUB_OUTPUT"
+            echo "suffix=-unsigned" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build APK
@@ -99,11 +98,12 @@ jobs:
       - name: Rename APK
         id: apk
         run: |
-          OUT="VidVault-${{ steps.version.outputs.name }}.apk"
+          OUT="VidVault-${{ steps.version.outputs.name }}${{ steps.signing.outputs.suffix }}.apk"
           cp "${{ steps.signing.outputs.apk }}" "$OUT"
           echo "path=android/$OUT" >> "$GITHUB_OUTPUT"
           echo "file=$OUT" >> "$GITHUB_OUTPUT"
           sha256sum "$OUT"
+          echo "sha256=$(sha256sum "$OUT" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -112,13 +112,21 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      # Every non-PR build becomes a pre-release the server can sign; android-v* tags become full releases.
       - name: Publish release
-        if: startsWith(github.ref, 'refs/tags/android-v')
+        if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('android-build-{0}', steps.version.outputs.name) }}
+          target_commitish: ${{ github.sha }}
           name: VidVault Android ${{ steps.version.outputs.name }}
+          prerelease: ${{ !startsWith(github.ref, 'refs/tags/android-v') }}
           files: ${{ steps.apk.outputs.path }}
-          generate_release_notes: true
+          body: |
+            Android build ${{ steps.version.outputs.name }} (versionCode ${{ steps.version.outputs.code }}) from ${{ github.sha }}.
+            Install the signed app from the VidVault website: **/download/android**.
+
+            sha256: `${{ steps.apk.outputs.sha256 }}`
 
       - name: Clean up signing files
         if: always()

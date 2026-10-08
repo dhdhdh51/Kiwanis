@@ -1,0 +1,9 @@
+[Unit]
+Description=Sign and publish the latest VidVault Android build
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/vidvault-apk-sync.env
+ExecStart=/usr/local/bin/vidvault-apk-sync

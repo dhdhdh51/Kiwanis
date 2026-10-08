@@ -46,6 +46,8 @@ echo "sdk.dir=/path/to/Android/sdk" > local.properties
 ./gradlew assembleRelease            # signing: android/keystore.properties (storeFile, storePassword, keyAlias, keyPassword)
 # default server baked into the app: -Pvidvault.server=https://your-domain
 ```
+**CI:** `.github/workflows/android.yml` builds the APK on every push to `android/**` and publishes it as a GitHub (pre-)release. Because the repository is public, the signing key never goes to GitHub. The server's `vidvault-apk-sync` timer (`deploy/`) downloads each new build, checks its sha256, signs it with the key kept in `/etc/vidvault/signing`, and publishes it at `/download/android`.
+
 To serve the APK from `/download/android` (linked in Settings), set `DOWNLOADS_DIR` on the server and copy the APK there as `vidvault.apk`.
 
 Integration tests run the real upload worker against a server: `VV_TEST_SERVER=… VV_TEST_EMAIL=… VV_TEST_PASSWORD=… ./gradlew testDebugUnitTest`.
