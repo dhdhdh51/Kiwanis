@@ -11,6 +11,8 @@ declare module 'express-serve-static-core' {
   interface Request {
     user?: AuthUser;
     sessionId?: string;
+    /** Set when the request authenticated with `Authorization: Bearer <token>` */
+    apiTokenId?: string;
   }
 }
 
@@ -45,15 +47,35 @@ export async function createSession(req: Request, res: Response, userId: string)
   setSessionCookie(res, token);
 }
 
-/** Loads the user from the session cookie, if any. Never rejects the request. */
+const userSelect = { id: true, email: true, name: true, role: true, status: true, storageLimit: true, createdAt: true } as const;
+
+/** API tokens look like `vv_<43 chars>`; the prefix makes leaked tokens easy to recognise and scan for. */
+export const newApiToken = () => `vv_${randomToken(32)}`;
+
+async function loadTokenUser(req: Request, raw: string) {
+  const t = await prisma.apiToken.findUnique({ where: { tokenHash: sha256(raw) }, include: { user: { select: userSelect } } });
+  if (!t || t.user.status !== 'ACTIVE') return;
+  req.user = t.user;
+  req.apiTokenId = t.id;
+  if (!t.lastUsedAt || Date.now() - t.lastUsedAt.getTime() > TOUCH_INTERVAL_MS) {
+    prisma.apiToken.update({ where: { id: t.id }, data: { lastUsedAt: new Date() } }).catch(() => undefined);
+  }
+}
+
+/** Loads the user from a Bearer token or the session cookie, if any. Never rejects the request. */
 export async function loadUser(req: Request, _res: Response, next: NextFunction) {
+  const authz = req.get('authorization');
+  if (authz) {
+    const m = /^Bearer\s+(vv_[A-Za-z0-9_-]{20,100})$/.exec(authz.trim());
+    if (m) await loadTokenUser(req, m[1]);
+    // A request presenting a token never falls back to cookies.
+    return next();
+  }
   const token = req.cookies?.[config.session.cookieName] as string | undefined;
   if (!token) return next();
   const session = await prisma.session.findUnique({
     where: { tokenHash: sha256(token) },
-    include: {
-      user: { select: { id: true, email: true, name: true, role: true, status: true, storageLimit: true, createdAt: true } },
-    },
+    include: { user: { select: userSelect } },
   });
   if (!session || session.expiresAt < new Date() || session.user.status !== 'ACTIVE') return next();
   req.user = session.user;
@@ -87,6 +109,10 @@ export function requireRole(role: Role) {
  */
 export function csrfGuard(req: Request, _res: Response, next: NextFunction) {
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  // Bearer tokens are never sent automatically by browsers, so they are not CSRF-able.
+  if (req.apiTokenId || req.get('authorization')) return next();
+  // Device sign-in returns a token in the body and sets no cookie, so it cannot be abused via CSRF.
+  if (req.path === '/auth/token') return next();
   const origin = req.get('origin');
   if (origin && origin !== config.appOrigin && origin !== `${req.protocol}://${req.get('host')}`) {
     return next(new HttpError(403, 'FORBIDDEN', 'Cross-origin request blocked'));

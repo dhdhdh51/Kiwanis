@@ -16,6 +16,14 @@ export async function getUsedBytes(userId: string, tx: Tx = prisma): Promise<big
 export function shareUrl(token: string) {
   return `${config.appUrl}/s/${token}`;
 }
+export const embedUrl = (token: string) => `${config.appUrl}/embed/${token}`;
+/** Stable URL usable as <video src>: redirects to a fresh short-lived signed storage URL. */
+export const streamUrl = (token: string) => `${config.appUrl}/api/public/s/${token}/stream`;
+export const posterUrl = (token: string) => `${config.appUrl}/api/public/s/${token}/poster`;
+
+export function embedCode(token: string, width = 640, height = 360) {
+  return `<iframe src="${embedUrl(token)}" width="${width}" height="${height}" frameborder="0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>`;
+}
 
 export function shareIsActive(share: Pick<ShareLink, 'isPublic' | 'expiresAt'> | null | undefined) {
   return !!share && share.isPublic && (!share.expiresAt || share.expiresAt > new Date());
@@ -30,6 +38,10 @@ export function serializeShare(share: ShareLink | null | undefined) {
     hasPassword: !!share.passwordHash,
     expiresAt: share.expiresAt,
     allowDownload: share.allowDownload,
+    allowEmbed: share.allowEmbed,
+    embedUrl: embedUrl(share.token),
+    embedCode: embedCode(share.token),
+    streamUrl: share.passwordHash ? null : streamUrl(share.token),
     views: share.views,
     active: shareIsActive(share),
     expired: !!share.expiresAt && share.expiresAt <= new Date(),

@@ -1,8 +1,11 @@
 import { useState, type ReactNode } from 'react';
-import { Monitor, Moon, Sun } from 'lucide-react';
+import { Link } from 'react-router';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Check, Copy, KeyRound, Monitor, Moon, Smartphone, Sun, Trash2 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
-import { formatBytes, formatDate } from '../lib/format';
+import { copyText, formatBytes, formatDate, timeAgo } from '../lib/format';
+import { ui } from '../lib/ui';
 import { useConfig, useStats } from '../lib/queries';
 import { useTheme } from '../lib/theme';
 import { errorMessage, toast } from '../lib/toast';
@@ -32,6 +35,112 @@ function NumberField({ label, hint, value, min, max, onChange }: { label: string
       </div>
       <span className="mt-1 block text-xs text-zinc-500">{hint}</span>
     </label>
+  );
+}
+
+interface TokenRow {
+  id: string;
+  name: string;
+  kind: 'app' | 'key';
+  prefix: string;
+  lastUsedAt: string | null;
+  createdAt: string;
+}
+
+function ApiKeys() {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ['tokens'], queryFn: () => api<{ tokens: TokenRow[] }>('/api/me/tokens') });
+  const [name, setName] = useState('');
+  const [created, setCreated] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const tokens = data?.tokens ?? [];
+  const revoke = (t: TokenRow) =>
+    ui.confirm({
+      title: t.kind === 'app' ? `Sign out "${t.name}"?` : `Revoke API key "${t.name}"?`,
+      message: t.kind === 'app' ? 'The device will be signed out and its uploads will stop.' : 'Anything using this key will immediately lose access.',
+      confirmLabel: t.kind === 'app' ? 'Sign out device' : 'Revoke key',
+      danger: true,
+      onConfirm: async () => {
+        await api(`/api/me/tokens/${t.id}`, { method: 'DELETE' });
+        await qc.invalidateQueries({ queryKey: ['tokens'] });
+        toast.success(t.kind === 'app' ? 'Device signed out' : 'Key revoked');
+      },
+    });
+  const list = (kind: TokenRow['kind']) => tokens.filter((t) => t.kind === kind);
+  const row = (t: TokenRow) => (
+    <li key={t.id} className="flex items-center gap-3 px-3 py-2.5">
+      {t.kind === 'app' ? <Smartphone size={16} className="text-zinc-400" /> : <KeyRound size={16} className="text-zinc-400" />}
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium">{t.name}</div>
+        <div className="text-xs text-zinc-500">
+          <code>{t.prefix}…</code> · created {formatDate(t.createdAt)} · {t.lastUsedAt ? `used ${timeAgo(t.lastUsedAt)}` : 'never used'}
+        </div>
+      </div>
+      <button className="btn-icon btn-ghost h-8 w-8 text-red-600 dark:text-red-400" onClick={() => revoke(t)} aria-label={`Revoke ${t.name}`}>
+        <Trash2 size={15} />
+      </button>
+    </li>
+  );
+  return (
+    <div className="space-y-4">
+      <form
+        className="flex gap-2"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (!name.trim()) return;
+          setBusy(true);
+          try {
+            const r = await api<{ token: string }>('/api/me/tokens', { body: { name: name.trim() } });
+            setCreated(r.token);
+            setName('');
+            await qc.invalidateQueries({ queryKey: ['tokens'] });
+          } catch (err) {
+            toast.error(errorMessage(err));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <input className="input" placeholder="Key name, e.g. My website" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
+        <button className="btn-primary shrink-0" disabled={busy || !name.trim()}>
+          Create key
+        </button>
+      </form>
+      {created && (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-500/20 dark:bg-emerald-500/10">
+          <p className="text-sm font-medium text-emerald-800 dark:text-emerald-300">Copy your new API key now — it won't be shown again.</p>
+          <div className="mt-2 flex gap-2">
+            <input className="input font-mono text-xs" readOnly value={created} onFocus={(e) => e.target.select()} aria-label="New API key" />
+            <button
+              className="btn-secondary shrink-0"
+              onClick={async () => {
+                if (await copyText(created)) {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                }
+              }}
+            >
+              {copied ? <Check size={15} /> : <Copy size={15} />}
+            </button>
+          </div>
+        </div>
+      )}
+      {list('key').length > 0 && <ul className="divide-y divide-zinc-100 rounded-xl border border-zinc-200 dark:divide-white/5 dark:border-white/10">{list('key').map(row)}</ul>}
+      {list('app').length > 0 && (
+        <div>
+          <div className="mb-1.5 text-xs font-semibold tracking-wide text-zinc-500 uppercase">Signed-in devices</div>
+          <ul className="divide-y divide-zinc-100 rounded-xl border border-zinc-200 dark:divide-white/5 dark:border-white/10">{list('app').map(row)}</ul>
+        </div>
+      )}
+      <p className="text-xs text-zinc-500">
+        Keys give full access to your account — keep them secret and use them only from servers you control. See the{' '}
+        <Link to="/developers" className="text-brand-600 hover:underline dark:text-brand-400">
+          developer API docs
+        </Link>
+        .
+      </p>
+    </div>
   );
 }
 
@@ -166,6 +275,22 @@ export function SettingsPage() {
             </p>
           )}
         </div>
+      </Section>
+
+      <Section title="Android app" description="Upload in the background — keeps going when the app is closed or the screen is off, and resumes after network drops.">
+        <div className="flex flex-wrap items-center gap-3">
+          <a href="/download/android" className="btn-primary">
+            <Smartphone size={16} /> Download for Android
+          </a>
+          <span className="text-xs text-zinc-500">
+            Server address in the app: <code className="rounded bg-zinc-100 px-1 dark:bg-white/10">{window.location.origin}</code>
+          </span>
+        </div>
+        <p className="mt-2 text-xs text-zinc-500">Android 7.0+. Allow “Install unknown apps” for your browser when prompted.</p>
+      </Section>
+
+      <Section title="API keys" description="Use the VidVault API from your own website or scripts.">
+        <ApiKeys />
       </Section>
 
       <Section title="Storage">

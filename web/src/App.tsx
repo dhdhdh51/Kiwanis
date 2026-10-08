@@ -16,6 +16,8 @@ import { FoldersPage, NotFoundPage, SharedPage, TrashPage, VideosPage } from './
 import { SettingsPage } from './pages/SettingsPage';
 import { AdminPage } from './pages/AdminPage';
 import { SharePage } from './pages/SharePage';
+import { EmbedPage } from './pages/EmbedPage';
+import { DevelopersPage } from './pages/DevelopersPage';
 
 function FullPageSpinner() {
   return (
@@ -76,6 +78,8 @@ const router = createBrowserRouter([
       { path: '/forgot-password', element: <ForgotPasswordPage /> },
       { path: '/reset-password', element: <ResetPasswordPage /> },
       { path: '/s/:token', element: <SharePage /> },
+      { path: '/embed/:token', element: <EmbedPage /> },
+      { path: '/developers', element: <DevelopersPage /> },
       {
         element: (
           <RequireAuth>

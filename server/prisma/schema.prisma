@@ -54,6 +54,24 @@ model User {
   videos      Video[]
   uploads     UploadSession[]
   activities  Activity[]
+  apiTokens   ApiToken[]
+}
+
+/// Bearer tokens for the Android app and the developer API (only the SHA-256 is stored)
+model ApiToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  /// "app" = created by signing in from a device, "key" = developer API key
+  kind       String    @default("key")
+  tokenHash  String    @unique
+  /// First characters of the token, shown in the UI to identify it
+  prefix     String
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
 }
 
 model Session {
@@ -187,6 +205,8 @@ model ShareLink {
   passwordHash  String?
   expiresAt     DateTime?
   allowDownload Boolean   @default(true)
+  /// Allow the video to be embedded on other websites via <iframe>
+  allowEmbed    Boolean   @default(true)
   views         Int       @default(0)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt

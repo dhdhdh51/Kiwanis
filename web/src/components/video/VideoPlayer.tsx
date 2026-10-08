@@ -12,6 +12,8 @@ interface Props {
   className?: string;
   /** Duration from metadata, used when the stream lacks a duration header */
   knownDuration?: number | null;
+  /** Fill the parent box instead of keeping a 16:9 frame (embed page) */
+  fill?: boolean;
 }
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
@@ -20,7 +22,7 @@ const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
  * Custom HTML5 player: streams directly from (signed) storage URLs using HTTP range requests,
  * so playback starts immediately without downloading the whole file.
  */
-export function VideoPlayer({ sources, poster, autoPlay, downloadUrl, className, knownDuration }: Props) {
+export function VideoPlayer({ sources, poster, autoPlay, downloadUrl, className, knownDuration, fill }: Props) {
   const wrap = useRef<HTMLDivElement>(null);
   const video = useRef<HTMLVideoElement>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -29,7 +31,13 @@ export function VideoPlayer({ sources, poster, autoPlay, downloadUrl, className,
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [buffered, setBuffered] = useState(0);
-  const [volume, setVolume] = useState(() => Number(localStorage.getItem('vv-volume') ?? 1));
+  const [volume, setVolume] = useState(() => {
+    try {
+      return Number(localStorage.getItem('vv-volume') ?? 1);
+    } catch {
+      return 1;
+    }
+  });
   const [muted, setMuted] = useState(false);
   const [rate, setRate] = useState(1);
   const [fullscreen, setFullscreen] = useState(false);
@@ -104,7 +112,11 @@ export function VideoPlayer({ sources, poster, autoPlay, downloadUrl, className,
       video.current.volume = volume;
       video.current.muted = muted;
     }
-    localStorage.setItem('vv-volume', String(volume));
+    try {
+      localStorage.setItem('vv-volume', String(volume));
+    } catch {
+      /* storage blocked (embedded) */
+    }
   }, [volume, muted]);
 
   useEffect(() => {
@@ -139,7 +151,7 @@ export function VideoPlayer({ sources, poster, autoPlay, downloadUrl, className,
       onKeyDown={onKey}
       onMouseMove={poke}
       onTouchStart={poke}
-      className={clsx('group relative overflow-hidden bg-black outline-none select-none', fullscreen ? 'h-screen w-screen' : 'aspect-video w-full', className, !controls && playing && 'cursor-none')}
+      className={clsx('group relative overflow-hidden bg-black outline-none select-none', fullscreen ? 'h-screen w-screen' : fill ? 'h-full w-full' : 'aspect-video w-full', className, !controls && playing && 'cursor-none')}
     >
       <video
         ref={video}

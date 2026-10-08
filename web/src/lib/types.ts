@@ -17,6 +17,11 @@ export interface Share {
   hasPassword: boolean;
   expiresAt: string | null;
   allowDownload: boolean;
+  allowEmbed: boolean;
+  embedUrl: string;
+  embedCode: string;
+  /** Stable direct video URL (null for password-protected links) */
+  streamUrl: string | null;
   views: number;
   active: boolean;
   expired: boolean;

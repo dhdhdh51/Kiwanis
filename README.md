@@ -36,6 +36,27 @@ API (Node/Express, stateless) ── PostgreSQL (metadata via Prisma)
 
 **Security:** every query is scoped to the owner, and other users' IDs return 404. Videos are private by default. Cookies are HttpOnly, SameSite=Lax and Secure in production. CSRF is blocked with a custom header plus an Origin check. Login, reset, upload, share-password and public endpoints are rate-limited. Helmet sets a strict CSP. Storage URLs are HMAC- or SigV4-signed and short-lived. Password reset responses do not reveal whether an account exists. A share-password grant is revoked when the password changes.
 
+## Android app (background uploads)
+
+`android/` is a native Kotlin app. Uploads run in WorkManager with a foreground-service notification, so they keep going when the app is closed or the screen is off. They wait for the network (with an optional Wi-Fi-only mode) and resume from the last finished chunk after interruptions or reboots, using the same fingerprint/resume protocol as the web app. You can share videos to VidVault from the gallery.
+
+```bash
+cd android
+echo "sdk.dir=/path/to/Android/sdk" > local.properties
+./gradlew assembleRelease            # signing: android/keystore.properties (storeFile, storePassword, keyAlias, keyPassword)
+# default server baked into the app: -Pvidvault.server=https://your-domain
+```
+To serve the APK from `/download/android` (linked in Settings), set `DOWNLOADS_DIR` on the server and copy the APK there as `vidvault.apk`.
+
+Integration tests run the real upload worker against a server: `VV_TEST_SERVER=… VV_TEST_EMAIL=… VV_TEST_PASSWORD=… ./gradlew testDebugUnitTest`.
+
+## Embedding videos on other websites & developer API
+
+- **Embed player:** `/embed/:token` is a chrome-less player for `<iframe>`. It is the only page other sites may frame, and the owner can turn it off per video with "Allow embedding". Embed code is available under Share → Embed on a website.
+- **Direct URL:** `/api/public/s/:token/stream` works as a stable `<video src>`. It redirects to a short-lived signed URL. Also `/poster` and `/download`.
+- **oEmbed + Open Graph:** share links unfurl in WhatsApp, Telegram and Facebook, and turn into players in WordPress.
+- **API keys:** create them under Settings → API keys, then send `Authorization: Bearer vv_…`. The API allows CORS for Bearer requests. Cookie sessions stay same-origin and CSRF-protected. Docs are at `/developers`.
+
 ## Run locally
 
 Requirements: Node 20+ and PostgreSQL. ffmpeg is optional.

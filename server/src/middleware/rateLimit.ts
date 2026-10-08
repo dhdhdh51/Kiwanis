@@ -32,4 +32,6 @@ export const limits = {
   /** Public share pages */
   publicShare: limiter(60_000, 120),
   sharePassword: limiter(15 * 60_000, 10),
+  /** Stream/poster redirects used by <video>/<img> tags on other websites */
+  publicMedia: limiter(60_000, 1200),
 };

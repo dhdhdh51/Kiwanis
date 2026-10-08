@@ -207,6 +207,9 @@ export class LocalStorageDriver implements StorageDriver {
         return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Object not found' } });
       }
       res.setHeader('Accept-Ranges', 'bytes');
+      // Signed, expiring URL: safe to load from other websites (<video>/<img> on embedding pages).
+      res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+      res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Content-Type', tok.ct ?? 'application/octet-stream');
       res.setHeader('Cache-Control', `private, max-age=${Math.max(0, tok.exp - Math.floor(Date.now() / 1000))}`);
       res.setHeader('X-Content-Type-Options', 'nosniff');

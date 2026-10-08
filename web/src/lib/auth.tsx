@@ -33,7 +33,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    void refresh();
+    // Embedded players on other websites never need the viewer's session.
+    if (window.location.pathname.startsWith('/embed/')) setLoading(false);
+    else void refresh();
     setUnauthorizedHandler(() => {
       setUser(null);
       qc.clear();

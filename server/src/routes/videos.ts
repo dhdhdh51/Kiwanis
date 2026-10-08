@@ -284,6 +284,7 @@ const shareSchema = z.object({
   password: z.string().min(4).max(128).nullable().optional(),
   expiresAt: z.coerce.date().nullable().optional(),
   allowDownload: z.boolean().optional(),
+  allowEmbed: z.boolean().optional(),
 });
 
 videosRouter.get('/:id/share', async (req, res) => {
@@ -298,6 +299,7 @@ videosRouter.put('/:id/share', async (req, res) => {
   const data: Prisma.ShareLinkUncheckedUpdateInput = {};
   if (body.isPublic !== undefined) data.isPublic = body.isPublic;
   if (body.allowDownload !== undefined) data.allowDownload = body.allowDownload;
+  if (body.allowEmbed !== undefined) data.allowEmbed = body.allowEmbed;
   if (body.expiresAt !== undefined) data.expiresAt = body.expiresAt;
   if (body.password !== undefined) data.passwordHash = body.password ? await hashPassword(body.password) : null;
   const share = await prisma.shareLink.upsert({
@@ -307,6 +309,7 @@ videosRouter.put('/:id/share', async (req, res) => {
       token: randomToken(16),
       isPublic: body.isPublic ?? true,
       allowDownload: body.allowDownload ?? true,
+      allowEmbed: body.allowEmbed ?? true,
       expiresAt: body.expiresAt ?? null,
       passwordHash: (data.passwordHash as string | null | undefined) ?? null,
     },

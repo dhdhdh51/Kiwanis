@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import clsx from 'clsx';
-import { Check, Copy, Globe, Link2, Lock, RefreshCw, ShieldOff } from 'lucide-react';
+import { Check, Code2, Copy, Globe, Link2, Lock, RefreshCw, ShieldOff } from 'lucide-react';
 import { Modal } from '../ui/Modal';
 import { Segmented, Spinner, Toggle } from '../ui/misc';
 import { api } from '../../lib/api';
@@ -27,6 +27,78 @@ function CopyField({ value }: { value: string }) {
       >
         {copied ? <Check size={16} /> : <Copy size={16} />} {copied ? 'Copied' : 'Copy'}
       </button>
+    </div>
+  );
+}
+
+function CodeBox({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-xs font-medium text-zinc-600 dark:text-zinc-300">{label}</span>
+        <button
+          className="btn-ghost h-7 px-2 text-xs"
+          onClick={async () => {
+            if (await copyText(value)) {
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            }
+          }}
+        >
+          {copied ? <Check size={13} /> : <Copy size={13} />} {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+      <textarea
+        readOnly
+        rows={value.length > 120 ? 3 : 1}
+        value={value}
+        onFocus={(e) => e.target.select()}
+        className="input resize-none font-mono text-[11px] leading-relaxed"
+        aria-label={label}
+      />
+      {hint && <p className="mt-1 text-[11px] text-zinc-500">{hint}</p>}
+    </div>
+  );
+}
+
+function EmbedSection({ share, busy, onToggle }: { share: Share; busy: boolean; onToggle: (v: boolean) => void }) {
+  const [open, setOpen] = useState(false);
+  const responsive = `<div style="position:relative;padding-top:56.25%"><iframe src="${share.embedUrl}" style="position:absolute;inset:0;width:100%;height:100%;border:0" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe></div>`;
+  return (
+    <div className="rounded-2xl border border-zinc-200 p-3 dark:border-white/10">
+      <div className="flex items-center justify-between gap-4">
+        <button className="flex items-center gap-2 text-left" onClick={() => setOpen((o) => !o)}>
+          <Code2 size={16} className="text-brand-600 dark:text-brand-300" />
+          <span>
+            <span className="block text-sm font-medium">Embed on a website</span>
+            <span className="block text-xs text-zinc-500">{open ? 'Hide code' : 'Show embed code & direct link'}</span>
+          </span>
+        </button>
+        <Toggle checked={share.allowEmbed} disabled={busy} onChange={onToggle} label="Allow embedding" />
+      </div>
+      {open && (
+        <div className="mt-3 space-y-3">
+          {!share.allowEmbed ? (
+            <p className="text-xs text-amber-600 dark:text-amber-400">Embedding is off — other websites can't show this video in an iframe.</p>
+          ) : (
+            <>
+              <CodeBox label="Responsive embed (recommended)" value={responsive} hint="Fits any width, keeps 16:9. Paste into your site's HTML." />
+              <CodeBox label="Fixed size iframe" value={share.embedCode} hint="Add ?autoplay=1 to the src to start muted playback automatically (browser rules apply)." />
+              <CodeBox label="WordPress / CMS" value={share.url} hint="Paste the link — sites supporting oEmbed turn it into a player." />
+            </>
+          )}
+          {share.streamUrl ? (
+            <CodeBox
+              label="Direct video URL (for <video src> / custom players)"
+              value={share.streamUrl}
+              hint="Always valid while the link is public; redirects to a short-lived secure storage URL."
+            />
+          ) : (
+            <p className="text-xs text-zinc-500">Direct video URL isn't available for password-protected links.</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -120,6 +192,8 @@ function SingleShare({ video }: { video: Video }) {
       </div>
 
       <CopyField value={share.url} />
+
+      {share.isPublic && <EmbedSection share={share} busy={busy} onToggle={(v) => update.mutate({ allowEmbed: v })} />}
 
       <div className="flex items-center justify-between gap-4">
         <div>
