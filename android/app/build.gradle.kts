@@ -19,8 +19,9 @@ android {
         applicationId = "app.vidvault.android"
         minSdk = 24
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        // CI passes -Pvidvault.versionCode=<run number> so every build installs over the previous one.
+        versionCode = (project.findProperty("vidvault.versionCode") as String?)?.toInt() ?: 1
+        versionName = (project.findProperty("vidvault.versionName") as String?) ?: "1.0.0"
         // Default server shown on the sign-in screen (can be changed by the user)
         buildConfigField("String", "DEFAULT_SERVER", "\"${project.findProperty("vidvault.server") ?: "https://vault.bharatseo.site"}\"")
     }

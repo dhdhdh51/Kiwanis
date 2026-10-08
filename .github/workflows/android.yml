@@ -1,0 +1,125 @@
+name: Android APK
+
+# Builds the VidVault Android app.
+#  - Every push to android/** (and manual runs): signed APK uploaded as a workflow artifact.
+#  - Tags like "android-v1.2.0": also published as a GitHub Release with the APK attached.
+#
+# Signing secrets (Settings → Secrets and variables → Actions):
+#   ANDROID_KEYSTORE_BASE64   base64 of the .jks keystore
+#   ANDROID_KEYSTORE_PASSWORD keystore password
+#   ANDROID_KEY_ALIAS         key alias (vidvault)
+#   ANDROID_KEY_PASSWORD      key password
+# Without them a debug-signed APK is built instead (installable, but updates won't install over a release build).
+#
+# Optional repository variable VIDVAULT_SERVER sets the default server shown at sign-in.
+
+on:
+  push:
+    branches: [main, master, feature/vidvault-platform]
+    paths: ['android/**', '.github/workflows/android.yml']
+    tags: ['android-v*']
+  pull_request:
+    paths: ['android/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+    inputs:
+      server:
+        description: 'Default server URL baked into the app'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: android
+    env:
+      SERVER: ${{ github.event.inputs.server || vars.VIDVAULT_SERVER || 'https://vault.bharatseo.site' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/android-v* ]]; then
+            NAME="${GITHUB_REF#refs/tags/android-v}"
+          else
+            NAME="1.0.${GITHUB_RUN_NUMBER}"
+          fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$((100 + GITHUB_RUN_NUMBER))" >> "$GITHUB_OUTPUT"
+
+      - name: Set up signing
+        id: signing
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PW: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PW: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ] && [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            {
+              echo "storeFile=$RUNNER_TEMP/release.jks"
+              echo "storePassword=$STORE_PW"
+              echo "keyAlias=$KEY_ALIAS"
+              echo "keyPassword=$KEY_PW"
+            } > keystore.properties
+            echo "task=assembleRelease" >> "$GITHUB_OUTPUT"
+            echo "apk=app/build/outputs/apk/release/app-release.apk" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Signing secrets not available — building a debug APK."
+            echo "task=assembleDebug" >> "$GITHUB_OUTPUT"
+            echo "apk=app/build/outputs/apk/debug/app-debug.apk" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon ${{ steps.signing.outputs.task }} \
+            -Pvidvault.server="$SERVER" \
+            -Pvidvault.versionCode=${{ steps.version.outputs.code }} \
+            -Pvidvault.versionName=${{ steps.version.outputs.name }}
+
+      - name: Rename APK
+        id: apk
+        run: |
+          OUT="VidVault-${{ steps.version.outputs.name }}.apk"
+          cp "${{ steps.signing.outputs.apk }}" "$OUT"
+          echo "path=android/$OUT" >> "$GITHUB_OUTPUT"
+          echo "file=$OUT" >> "$GITHUB_OUTPUT"
+          sha256sum "$OUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.file }}
+          path: ${{ steps.apk.outputs.path }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: VidVault Android ${{ steps.version.outputs.name }}
+          files: ${{ steps.apk.outputs.path }}
+          generate_release_notes: true
+
+      - name: Clean up signing files
+        if: always()
+        run: rm -f keystore.properties "$RUNNER_TEMP/release.jks"
